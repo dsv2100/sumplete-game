@@ -18,17 +18,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
-import java.lang.Double.min
 import kotlin.random.Random
+import kotlin.math.min
 
 // -------------------- DATA CLASSES --------------------
 data class Cell(
     val row: Int,
     val col: Int,
-    val isSolution: Boolean = false,
-    var backgroundColor: Color = Color.Gray
+    val isSolution: Boolean = false
 )
 
 data class TotalSums(val rowSums: List<Int>, val columnSums: List<Int>)
@@ -47,16 +45,21 @@ private val SumCellSize = 56.dp
 // -------------------- PARENT --------------------
 @Composable
 fun ParentComposable() {
+
+    // Game level
+    //var size = 12
+    var gridSizeInUse by remember { mutableStateOf(12) }              // active grid size
+    var pendingGridSize by remember { mutableStateOf(gridSizeInUse) } // dropdown selection
+
+    // Game setup
+    var gameSetup by remember { mutableStateOf(generateSumpleteGrid(gridSizeInUse)) }
+
+    // Game state
     var toggleIsOn by remember { mutableStateOf(true) }
     var isSolutionCorrect by remember { mutableStateOf(true) }
     var gameFinished by remember { mutableStateOf(false) }
-
-
-    // Game state
-    var gameSetup by remember { mutableStateOf(generateSumpleteGrid(7)) }
     var clickedCells by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var erasedCells by remember { mutableStateOf<Set<Int>>(emptySet()) }
-
 
     Column(
         modifier = Modifier
@@ -71,8 +74,15 @@ fun ParentComposable() {
                 .fillMaxWidth()
         ) {
             SumpleteGame(
+                gameSetup = gameSetup,
+                clickedCells = clickedCells,
+                erasedCells = erasedCells,
+                isSolutionCorrect = isSolutionCorrect,
+                gameFinished = gameFinished,
                 toggleIsOn = toggleIsOn,
-                size = 7,
+                size = gridSizeInUse,
+                onClickedCellsChanged = { clickedCells = it },
+                onErasedCellsChanged = { erasedCells = it },
                 onGameEnd = { correct, finished ->
                     isSolutionCorrect = correct
                     gameFinished = finished
@@ -87,19 +97,38 @@ fun ParentComposable() {
 
         // ---- Restart Button ----
         Spacer(modifier = Modifier.height(12.dp))
-        Button(
-            onClick = {
-                // Reinitialize everything
-                gameSetup = generateSumpleteGrid(7)
+
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Dropdown only updates pendingGridSize
+            DropdownMenuExample(
+                selectedSize = pendingGridSize,
+                onSizeSelected = { newSize -> pendingGridSize = newSize }
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Restart button applies pendingGridSize
+            Button(onClick = {
+                gridSizeInUse = pendingGridSize
+                gameSetup = generateSumpleteGrid(gridSizeInUse)
                 clickedCells = emptySet()
                 erasedCells = emptySet()
                 isSolutionCorrect = true
                 gameFinished = false
-            },
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        ) {
-            Text("Restart Game (in dev)")
+            }) {
+                Text("New Game")
+            }
         }
+
+
+
+
+
     }
 }
 
@@ -127,16 +156,19 @@ fun generateSumpleteGrid(size: Int): GameSetUp {
 // -------------------- GAME UI --------------------
 @Composable
 fun SumpleteGame(
+    gameSetup: GameSetUp,
+    clickedCells: Set<Int>,
+    erasedCells: Set<Int>,
+    isSolutionCorrect: Boolean,
+    gameFinished: Boolean,
     toggleIsOn: Boolean,
-    size: Int = 4,
+    size: Int,
+    onClickedCellsChanged: (Set<Int>) -> Unit,
+    onErasedCellsChanged: (Set<Int>) -> Unit,
     onGameEnd: (Boolean, Boolean) -> Unit
 ) {
-    val (grid, cells, sums, victorySet) = remember { generateSumpleteGrid(size) }
+    val (grid, cells, sums, victorySet) = gameSetup
     val (rowSums, colSums) = sums
-    var clickedCells by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var erasedCells by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var isSolutionCorrect by remember { mutableStateOf(true) }
-    var gameFinished by remember { mutableStateOf(false) }
 
     val horizontalScroll = rememberScrollState()
     val verticalScroll = rememberScrollState()
@@ -154,14 +186,18 @@ fun SumpleteGame(
         )
         Spacer(modifier = Modifier.height(20.dp))
 
+
         BoxWithConstraints {
-            val gridHeight = this.maxHeight - SumCellSize // reserve space for bottom column sums
-            val gridWidth = this.maxWidth
+
+
+            val gridHeight = min(this.maxHeight.value-SumCellSize.value,size*CellSize.value).dp
+            val gridWidth = min(this.maxWidth.value-SumCellSize.value,size*CellSize.value).dp
+
             Row {
                 // Scrollable grid
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .width(gridWidth)
                         .height(gridHeight)
                         .verticalScroll(verticalScroll)
                 ) {
@@ -187,24 +223,29 @@ fun SumpleteGame(
                                             .padding(2.dp)
                                             .background(backgroundColor, shape = RoundedCornerShape(12.dp))
                                             .clickable(enabled = !clickedCells.contains(index)) {
-                                                clickedCells =
-                                                    if (!clickedCells.contains(index) && toggleIsOn) {
-                                                        clickedCells + index
-                                                    } else clickedCells
+                                                var newClicked = clickedCells
+                                                var newErased = erasedCells
+                                                var newCorrect = isSolutionCorrect
+                                                var newFinished = gameFinished
 
-                                                erasedCells =
-                                                    if (!erasedCells.contains(index) && !toggleIsOn) {
-                                                        erasedCells + index
-                                                    } else erasedCells
+                                                if (!clickedCells.contains(index) && toggleIsOn) {
+                                                    newClicked = newClicked + index
+                                                    onClickedCellsChanged(newClicked)
+                                                } else if (!erasedCells.contains(index) && !toggleIsOn) {
+                                                    newErased = newErased + index
+                                                    onErasedCellsChanged(newErased)
+                                                }
 
                                                 if ((!cell.isSolution && toggleIsOn) || (cell.isSolution && !toggleIsOn)) {
-                                                    isSolutionCorrect = false
-                                                    gameFinished = true
+                                                    newCorrect = false
+                                                    newFinished = true
                                                 }
 
-                                                if (victorySet.sorted() == clickedCells.sorted()) {
-                                                    gameFinished = true
+                                                if (victorySet.sorted() == newClicked.sorted()) {
+                                                    newFinished = true
                                                 }
+
+                                                onGameEnd(newCorrect, newFinished)
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -212,7 +253,7 @@ fun SumpleteGame(
                                         Text(
                                             textValue,
                                             fontSize = if (textValue.length > 1) 16.sp else 18.sp,
-                                            color = Color.White,//if (backgroundColor == Color.White) Color.Black else Color.White,
+                                            color = Color.White, //Always white
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
@@ -226,6 +267,7 @@ fun SumpleteGame(
                 Column(
                     modifier = Modifier
                         .height(gridHeight)
+                        .width(gridWidth)
                         .verticalScroll(verticalScroll)
                 ) {
                     for (rowSum in rowSums) {
@@ -246,12 +288,12 @@ fun SumpleteGame(
                 }
             }
 
-// Bottom column sums (fixed vertically, scrolls horizontally)
+            // Bottom column sums (fixed vertically, scrolls horizontally)
             Box(
                 modifier = Modifier
-                    //.align(Alignment.BottomEnd)
-                    .width(gridWidth-SumCellSize)//supposing cells are squares
-                    .offset(y = min(gridHeight,SumCellSize*size))
+                    .height(gridHeight)
+                    .width(gridWidth)
+                    .offset(y = gridHeight)
                     .horizontalScroll(horizontalScroll)
             ) {
                 Row {
@@ -318,6 +360,34 @@ fun ToggleScreen(toggleIsOn: Boolean, onToggleChanged: (Boolean) -> Unit) {
         Text("Click", fontSize = 20.sp, fontWeight = FontWeight.Medium)
     }
 }
+
+
+@Composable
+fun DropdownMenuExample(selectedSize: Int, onSizeSelected: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text("Grid size: $selectedSize")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            for (i in 3..15) {
+                DropdownMenuItem(
+                    text = { Text(i.toString()) },
+                    onClick = {
+                        onSizeSelected(i)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+
 
 // -------------------- PREVIEW & MAIN --------------------
 @Preview(showBackground = true)
